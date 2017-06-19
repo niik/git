@@ -5,45 +5,30 @@
  */
 
 #include "builtin.h"
-#include "exec_cmd.h"
-#include "string-list.h"
-#include "strbuf.h"
+#include "pkt-line.h"
 #include "argv-array.h"
-#include "parse-options.h"
-
-static const char * const read_command_usage[] = {
-	N_("git read-command [<options>]"),
-	NULL
-};
 
 int cmd_read_command(int argc, const char **argv, const char *prefix)
 {
-  int line_terminator = '\n';
-  strbuf_getline_fn getline_fn;
+	struct argv_array new_argv = ARGV_ARRAY_INIT;
+	char buf[LARGE_PACKET_MAX];
 
-  struct option builtin_read_command_options[] = {
-		/* Think twice before adding "--nul" synonym to this */
-		OPT_SET_INT('z', NULL, &line_terminator,
-			N_("commands are separated with NUL character"), '\0'),
-    OPT_END()
-  };
+	int r = packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
 
-  argc = parse_options(argc, argv, prefix, builtin_read_command_options,
-      read_command_usage, 0);
+	if (r <= 0)
+		die("Zero length argument length packet");
 
-  struct argv_array new_argv = ARGV_ARRAY_INIT;
-  struct strbuf buf = STRBUF_INIT;
+	int new_argc = atoi(buf);
 
-  argv_array_push(&new_argv, "git");
+	if (new_argc < 0)
+		die("Invalid argument length packet");
 
-  getline_fn = line_terminator == '\0' ? strbuf_getline_nul : strbuf_getline;
+	argv_array_push(&new_argv, "git");
 
-  while (getline_fn(&buf, stdin) != EOF) {
-    argv_array_push(&new_argv, buf.buf);
-    strbuf_reset(&buf);
-  }
+	for(int i = 0; i < new_argc; i++) {
+		packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
+		argv_array_push(&new_argv, buf);
+	}
 
-  strbuf_release(&buf);
-
-  return cmd_main(new_argv.argc, new_argv.argv);
+	return cmd_main(new_argv.argc, new_argv.argv);
 }
