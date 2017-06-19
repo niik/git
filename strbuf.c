@@ -408,8 +408,6 @@ ssize_t strbuf_write(struct strbuf *sb, FILE *f)
 }
 
 
-#define STRBUF_MAXLINK (2*PATH_MAX)
-
 int strbuf_readlink(struct strbuf *sb, const char *path, size_t hint)
 {
 	size_t oldalloc = sb->alloc;
@@ -417,21 +415,18 @@ int strbuf_readlink(struct strbuf *sb, const char *path, size_t hint)
 	if (hint < 32)
 		hint = 32;
 
-	while (hint < STRBUF_MAXLINK) {
+	for (;; hint *= 2) {
 		int len;
 
-		strbuf_grow(sb, hint);
-		len = readlink(path, sb->buf, hint);
+		strbuf_grow(sb, hint + 1);
+		len = readlink(path, sb->buf, hint + 1);
 		if (len < 0) {
 			if (errno != ERANGE)
 				break;
-		} else if (len < hint) {
+		} else if (len <= hint) {
 			strbuf_setlen(sb, len);
 			return 0;
 		}
-
-		/* .. the buffer was too small - try again */
-		hint *= 2;
 	}
 	if (oldalloc == 0)
 		strbuf_release(sb);
@@ -449,6 +444,17 @@ int strbuf_getcwd(struct strbuf *sb)
 			strbuf_setlen(sb, strlen(sb->buf));
 			return 0;
 		}
+
+		/*
+		 * If getcwd(3) is implemented as a syscall that falls
+		 * back to a regular lookup using readdir(3) etc. then
+		 * we may be able to avoid EACCES by providing enough
+		 * space to the syscall as it's not necessarily bound
+		 * to the same restrictions as the fallback.
+		 */
+		if (errno == EACCES && guessed_len < PATH_MAX)
+			continue;
+
 		if (errno != ERANGE)
 			break;
 	}
@@ -705,6 +711,17 @@ void strbuf_add_absolute_path(struct strbuf *sb, const char *path)
 		free(cwd);
 	}
 	strbuf_addstr(sb, path);
+}
+
+void strbuf_add_real_path(struct strbuf *sb, const char *path)
+{
+	if (sb->len) {
+		struct strbuf resolved = STRBUF_INIT;
+		strbuf_realpath(&resolved, path, 1);
+		strbuf_addbuf(sb, &resolved);
+		strbuf_release(&resolved);
+	} else
+		strbuf_realpath(sb, path, 1);
 }
 
 int printf_ln(const char *fmt, ...)

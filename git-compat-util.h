@@ -1,6 +1,15 @@
 #ifndef GIT_COMPAT_UTIL_H
 #define GIT_COMPAT_UTIL_H
 
+#ifdef USE_MSVC_CRTDBG
+/*
+ * For these to work they must appear very early in each
+ * file -- before most of the standard header files.
+ */
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #define _FILE_OFFSET_BITS 64
 
 
@@ -42,6 +51,23 @@
 #endif
 #endif
 
+/*
+ * Under certain circumstances Git's source code is cleverer than the C
+ * compiler when the latter warns about some "uninitialized value", e.g. when
+ * a value is both initialized and used under the same condition.
+ *
+ * GCC can be fooled to not spit out this warning by using the construct:
+ * "int value = value;". Other C compilers are not that easily fooled and would
+ * require a #pragma (which is not portable, and would litter the source code).
+ *
+ * To keep things simple, we only fool GCC, and initialize such values instead
+ * when compiling with other C compilers.
+ */
+#ifdef __GNUC__
+#define FAKE_INIT(a, b, c) a b = b
+#else
+#define FAKE_INIT(a, b, c) a b = c
+#endif
 
 /*
  * BUILD_ASSERT_OR_ZERO - assert a build-time dependency, as an expression.
@@ -192,8 +218,10 @@
 #if defined(__MINGW32__)
 /* pull in Windows compatibility stuff */
 #include "compat/mingw.h"
+#include "compat/win32/fscache.h"
 #elif defined(_MSC_VER)
 #include "compat/msvc.h"
+#include "compat/win32/fscache.h"
 #else
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -267,6 +295,33 @@ extern char *gitdirname(char *);
 
 #ifndef NO_ICONV
 #include <iconv.h>
+#ifdef _MSC_VER
+/*
+ * At least version 1.14.0.11 of the libiconv NuPkg at
+ * https://www.nuget.org/packages/libiconv/ does not set errno at all.
+ *
+ * Let's simulate it by testing whether we might have possibly run out of
+ * space.
+ */
+static inline size_t msvc_iconv(iconv_t conv,
+	const char **inpos, size_t *insize,
+	char **outpos, size_t *outsize)
+{
+	int saved_errno = errno;
+	size_t res;
+
+	errno = ENOENT;
+	res = iconv(conv, inpos, insize, outpos, outsize);
+	if (!res)
+		errno = saved_errno;
+	else if (errno == ENOENT)
+		errno = *outsize < 16 ? E2BIG : 0;
+
+	return res;
+}
+#undef iconv
+#define iconv msvc_iconv
+#endif
 #endif
 
 #ifndef NO_OPENSSL
@@ -330,6 +385,14 @@ extern char *gitdirname(char *);
 #define _PATH_DEFPATH "/usr/local/bin:/usr/bin:/bin"
 #endif
 
+#ifndef platform_core_config
+static inline int noop_core_config(const char *var, const char *value)
+{
+	return 0;
+}
+#define platform_core_config noop_core_config
+#endif
+
 #ifndef has_dos_drive_prefix
 static inline int git_has_dos_drive_prefix(const char *path)
 {
@@ -368,6 +431,14 @@ static inline char *git_find_last_dir_sep(const char *path)
 	return strrchr(path, '/');
 }
 #define find_last_dir_sep git_find_last_dir_sep
+#endif
+
+#ifndef query_user_email
+#define query_user_email() NULL
+#endif
+
+#ifndef git_program_data_config
+#define git_program_data_config() NULL
 #endif
 
 #if defined(__HP_cc) && (__HP_cc >= 61000)
@@ -527,6 +598,16 @@ static inline int ends_with(const char *str, const char *suffix)
 	return strip_suffix(str, suffix, &len);
 }
 
+#define SWAP(a, b) do {						\
+	void *_swap_a_ptr = &(a);				\
+	void *_swap_b_ptr = &(b);				\
+	unsigned char _swap_buffer[sizeof(a)];			\
+	memcpy(_swap_buffer, _swap_a_ptr, sizeof(a));		\
+	memcpy(_swap_a_ptr, _swap_b_ptr, sizeof(a) +		\
+	       BUILD_ASSERT_OR_ZERO(sizeof(a) == sizeof(b)));	\
+	memcpy(_swap_b_ptr, _swap_buffer, sizeof(a));		\
+} while (0)
+
 #if defined(NO_MMAP) || defined(USE_WIN32_MMAP)
 
 #ifndef PROT_READ
@@ -627,11 +708,6 @@ extern int gitsetenv(const char *, const char *, int);
 #ifdef NO_MKDTEMP
 #define mkdtemp gitmkdtemp
 extern char *gitmkdtemp(char *);
-#endif
-
-#ifdef NO_MKSTEMPS
-#define mkstemps gitmkstemps
-extern int gitmkstemps(char *, int);
 #endif
 
 #ifdef NO_UNSETENV
@@ -793,8 +869,6 @@ extern FILE *xfopen(const char *path, const char *mode);
 extern FILE *xfdopen(int fd, const char *mode);
 extern int xmkstemp(char *template);
 extern int xmkstemp_mode(char *template, int mode);
-extern int odb_mkstemp(char *template, size_t limit, const char *pattern);
-extern int odb_pack_keep(char *name, size_t namesz, const unsigned char *sha1);
 extern char *xgetcwd(void);
 extern FILE *fopen_for_writing(const char *path);
 
@@ -880,6 +954,12 @@ static inline size_t xsize_t(off_t len)
 
 __attribute__((format (printf, 3, 4)))
 extern int xsnprintf(char *dst, size_t max, const char *fmt, ...);
+
+#ifndef HOST_NAME_MAX
+#define HOST_NAME_MAX 256
+#endif
+
+extern int xgethostname(char *buf, size_t len);
 
 /* in ctype.c, for kwset users */
 extern const unsigned char tolower_trans_tbl[256];
@@ -987,6 +1067,17 @@ static inline void sane_qsort(void *base, size_t nmemb, size_t size,
 	if (nmemb > 1)
 		qsort(base, nmemb, size, compar);
 }
+
+#ifndef HAVE_ISO_QSORT_S
+int git_qsort_s(void *base, size_t nmemb, size_t size,
+		int (*compar)(const void *, const void *, void *), void *ctx);
+#define qsort_s git_qsort_s
+#endif
+
+#define QSORT_S(base, n, compar, ctx) do {			\
+	if (qsort_s((base), (n), sizeof(*(base)), compar, ctx))	\
+		die("BUG: qsort_s() failed");			\
+} while (0)
 
 #ifndef REG_STARTEND
 #error "Git requires REG_STARTEND support. Compile with NO_REGEX=NeedsStartEnd"
@@ -1099,6 +1190,21 @@ struct tm *git_gmtime_r(const time_t *, struct tm *);
 #define flockfile(fh)
 #define funlockfile(fh)
 #define getc_unlocked(fh) getc(fh)
+#endif
+
+/*
+ * Enable/disable a read-only cache for file system data on platforms that
+ * support it.
+ *
+ * Implementing a live-cache is complicated and requires special platform
+ * support (inotify, ReadDirectoryChangesW...). enable_fscache shall be used
+ * to mark sections of git code that extensively read from the file system
+ * without modifying anything. Implementations can use this to cache e.g. stat
+ * data or even file content without the need to synchronize with the file
+ * system.
+ */
+#ifndef enable_fscache
+#define enable_fscache(x) /* noop */
 #endif
 
 extern int cmd_main(int, const char **);

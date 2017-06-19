@@ -237,6 +237,22 @@ test_expect_success 'retain authorship' '
 	git show HEAD | grep "^Author: Twerp Snog"
 '
 
+test_expect_success 'retain authorship w/ conflicts' '
+	git reset --hard twerp &&
+	test_commit a conflict a conflict-a &&
+	git reset --hard twerp &&
+	GIT_AUTHOR_NAME=AttributeMe \
+	test_commit b conflict b conflict-b &&
+	set_fake_editor &&
+	test_must_fail git rebase -i conflict-a &&
+	echo resolved >conflict &&
+	git add conflict &&
+	git rebase --continue &&
+	test $(git rev-parse conflict-a^0) = $(git rev-parse HEAD^) &&
+	git show >out &&
+	grep AttributeMe out
+'
+
 test_expect_success 'squash' '
 	git reset --hard twerp &&
 	echo B > file7 &&
@@ -350,7 +366,7 @@ test_expect_success 'verbose flag is heeded, even after --continue' '
 	grep "^ file1 | 2 +-$" output
 '
 
-test_expect_success 'multi-squash only fires up editor once' '
+test_expect_success C_LOCALE_OUTPUT 'multi-squash only fires up editor once' '
 	base=$(git rev-parse HEAD~4) &&
 	set_fake_editor &&
 	FAKE_COMMIT_AMEND="ONCE" FAKE_LINES="1 squash 2 squash 3 squash 4" \
@@ -360,7 +376,7 @@ test_expect_success 'multi-squash only fires up editor once' '
 	test 1 = $(git show | grep ONCE | wc -l)
 '
 
-test_expect_success 'multi-fixup does not fire up editor' '
+test_expect_success C_LOCALE_OUTPUT 'multi-fixup does not fire up editor' '
 	git checkout -b multi-fixup E &&
 	base=$(git rev-parse HEAD~4) &&
 	set_fake_editor &&
@@ -410,7 +426,7 @@ D
 ONCE
 EOF
 
-test_expect_success 'squash and fixup generate correct log messages' '
+test_expect_success C_LOCALE_OUTPUT 'squash and fixup generate correct log messages' '
 	git checkout -b squash-fixup E &&
 	base=$(git rev-parse HEAD~4) &&
 	set_fake_editor &&
@@ -423,7 +439,7 @@ test_expect_success 'squash and fixup generate correct log messages' '
 	git branch -D squash-fixup
 '
 
-test_expect_success 'squash ignores comments' '
+test_expect_success C_LOCALE_OUTPUT 'squash ignores comments' '
 	git checkout -b skip-comments E &&
 	base=$(git rev-parse HEAD~4) &&
 	set_fake_editor &&
@@ -436,7 +452,7 @@ test_expect_success 'squash ignores comments' '
 	git branch -D skip-comments
 '
 
-test_expect_success 'squash ignores blank lines' '
+test_expect_success C_LOCALE_OUTPUT 'squash ignores blank lines' '
 	git checkout -b skip-blank-lines E &&
 	base=$(git rev-parse HEAD~4) &&
 	set_fake_editor &&
@@ -540,7 +556,7 @@ test_expect_success 'clean error after failed "exec"' '
 	echo "edited again" > file7 &&
 	git add file7 &&
 	test_must_fail git rebase --continue 2>error &&
-	test_i18ngrep "You have staged changes in your working tree." error
+	test_i18ngrep "you have staged changes in your working tree" error
 '
 
 test_expect_success 'rebase a detached HEAD' '
@@ -844,7 +860,7 @@ test_expect_success 'rebase -ix with several instances of --exec' '
 	test_cmp expected actual
 '
 
-test_expect_success 'rebase -ix with --autosquash' '
+test_expect_success C_LOCALE_OUTPUT 'rebase -ix with --autosquash' '
 	git reset --hard execute &&
 	git checkout -b autosquash &&
 	echo second >second.txt &&
@@ -927,7 +943,7 @@ test_expect_success 'rebase -i --root fixup root commit' '
 	test 0 = $(git cat-file commit HEAD | grep -c ^parent\ )
 '
 
-test_expect_success 'rebase --edit-todo does not works on non-interactive rebase' '
+test_expect_success C_LOCALE_OUTPUT 'rebase --edit-todo does not work on non-interactive rebase' '
 	git reset --hard &&
 	git checkout conflict-branch &&
 	set_fake_editor &&
@@ -974,6 +990,17 @@ test_expect_success 'rebase -i respects core.commentchar' '
 	test_set_editor "$(pwd)/remove-all-but-first.sh" &&
 	git rebase -i B &&
 	test B = $(git cat-file commit HEAD^ | sed -ne \$p)
+'
+
+test_expect_success 'rebase -i respects core.commentchar=auto' '
+	test_config core.commentchar auto &&
+	write_script copy-edit-script.sh <<-\EOF &&
+	cp "$1" edit-script
+	EOF
+	test_set_editor "$(pwd)/copy-edit-script.sh" &&
+	test_when_finished "git rebase --abort || :" &&
+	git rebase -i HEAD^ &&
+	test -z "$(grep -ve "^#" -e "^\$" -e "^pick" edit-script)"
 '
 
 test_expect_success 'rebase -i, with <onto> and <upstream> specified as :/quuxery' '
@@ -1215,20 +1242,13 @@ test_expect_success 'rebase -i respects rebase.missingCommitsCheck = error' '
 	test B = $(git cat-file commit HEAD^ | sed -ne \$p)
 '
 
-cat >expect <<EOF
-Warning: the command isn't recognized in the following line:
- - badcmd $(git rev-list --oneline -1 master~1)
-
-You can fix this with 'git rebase --edit-todo' and then run 'git rebase --continue'.
-Or you can abort the rebase with 'git rebase --abort'.
-EOF
-
 test_expect_success 'static check of bad command' '
 	rebase_setup_and_clean bad-cmd &&
 	set_fake_editor &&
 	test_must_fail env FAKE_LINES="1 2 3 bad 4 5" \
 		git rebase -i --root 2>actual &&
-	test_i18ncmp expect actual &&
+	test_i18ngrep "badcmd $(git rev-list --oneline -1 master~1)" actual &&
+	test_i18ngrep "You can fix this with .git rebase --edit-todo.." actual &&
 	FAKE_LINES="1 2 3 drop 4 5" git rebase --edit-todo &&
 	git rebase --continue &&
 	test E = $(git cat-file commit HEAD | sed -ne \$p) &&
@@ -1250,20 +1270,13 @@ test_expect_success 'tabs and spaces are accepted in the todolist' '
 	test E = $(git cat-file commit HEAD | sed -ne \$p)
 '
 
-cat >expect <<EOF
-Warning: the SHA-1 is missing or isn't a commit in the following line:
- - edit XXXXXXX False commit
-
-You can fix this with 'git rebase --edit-todo' and then run 'git rebase --continue'.
-Or you can abort the rebase with 'git rebase --abort'.
-EOF
-
 test_expect_success 'static check of bad SHA-1' '
 	rebase_setup_and_clean bad-sha &&
 	set_fake_editor &&
 	test_must_fail env FAKE_LINES="1 2 edit fakesha 3 4 5 #" \
 		git rebase -i --root 2>actual &&
-	test_i18ncmp expect actual &&
+	test_i18ngrep "edit XXXXXXX False commit" actual &&
+	test_i18ngrep "You can fix this with .git rebase --edit-todo.." actual &&
 	FAKE_LINES="1 2 4 5 6" git rebase --edit-todo &&
 	git rebase --continue &&
 	test E = $(git cat-file commit HEAD | sed -ne \$p)

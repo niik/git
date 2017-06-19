@@ -360,7 +360,7 @@ EOF
 test_expect_success 'status -s -b' '
 
 	git status -s -b >output &&
-	test_cmp expect output
+	test_i18ncmp expect output
 
 '
 
@@ -370,7 +370,7 @@ test_expect_success 'status -s -z -b' '
 	git status -s -z -b >output &&
 	nul_to_q <output >output.q &&
 	mv output.q output &&
-	test_cmp expect output
+	test_i18ncmp expect output
 '
 
 test_expect_success 'setup dir3' '
@@ -687,7 +687,7 @@ EOF
 test_expect_success 'status -s -b with color.status' '
 
 	git status -s -b | test_decode_color >output &&
-	test_cmp expect output
+	test_i18ncmp expect output
 
 '
 
@@ -1497,6 +1497,17 @@ test_expect_success 'git commit -m will commit a staged but ignored submodule' '
 	 test_i18ngrep ! "^M. sm" output &&
 	git config --remove-section submodule.subname &&
 	git config -f .gitmodules  --remove-section submodule.subname
+'
+
+test_expect_success '--no-lock-index' '
+	test_commit some-file &&
+	test-chmtime =1234567890 .git/index &&
+	git status --no-lock-index &&
+	test-chmtime -v +0 .git/index >out &&
+	grep ^1234567890 out &&
+	git status &&
+	test-chmtime -v +0 .git/index >out &&
+	! grep ^1234567890 out
 '
 
 test_done

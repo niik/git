@@ -70,7 +70,7 @@ test_expect_success 'iso-8859-1' '
 
 	git config i18n.commitencoding ISO8859-1 &&
 	# use author and committer name in ISO-8859-1 to match it.
-	. "$TEST_DIRECTORY"/t3901-8859-1.txt &&
+	. "$TEST_DIRECTORY"/t3901/8859-1.txt &&
 	test_tick &&
 	echo rosten >file &&
 	git commit -s -m den file &&
@@ -519,6 +519,17 @@ test_expect_success 'delete refspec' '
 	from 0000000000000000000000000000000000000000
 
 	EOF
+	test_cmp expected actual
+'
+
+cat > expected << EOF
+reset refs/heads/master
+from $(git rev-parse master)
+
+EOF
+
+test_expect_failure 'refs are updated even if no commits need to be exported' '
+	git fast-export master..master > actual &&
 	test_cmp expected actual
 '
 

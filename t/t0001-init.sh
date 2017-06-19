@@ -258,6 +258,9 @@ test_expect_success POSIXPERM 'init creates a new deep directory (umask vs. shar
 	(
 		# Leading directories should honor umask while
 		# the repository itself should follow "shared"
+		mkdir newdir &&
+		# Remove a default ACL if possible.
+		(setfacl -k newdir 2>/dev/null || true) &&
 		umask 002 &&
 		git init --bare --shared=0660 newdir/a/b/c &&
 		test_path_is_dir newdir/a/b/c/refs &&
@@ -312,6 +315,20 @@ test_expect_success 'init with separate gitdir' '
 	test_path_is_dir realgitdir/refs
 '
 
+test_expect_success 'init in long base path' '
+	# exceed initial buffer size of strbuf_getcwd()
+	component=123456789abcdef &&
+	test_when_finished "chmod 0700 $component; rm -rf $component" &&
+	p31=$component/$component &&
+	p127=$p31/$p31/$p31/$p31 &&
+	mkdir -p $p127 &&
+	chmod 0111 $component &&
+	(
+		cd $p127 &&
+		git init newdir
+	)
+'
+
 test_expect_success 're-init on .git file' '
 	( cd newdir && git init )
 '
@@ -357,7 +374,7 @@ test_expect_success SYMLINKS 're-init to move gitdir symlink' '
 # Tests for the hidden file attribute on windows
 is_hidden () {
 	# Use the output of `attrib`, ignore the absolute path
-	case "$(attrib "$1")" in *H*?:*) return 0;; esac
+	case "$("$SYSTEMROOT"/system32/attrib "$1")" in *H*?:*) return 0;; esac
 	return 1
 }
 
@@ -408,6 +425,30 @@ test_expect_success 're-init from a linked worktree' '
 		find .git/worktrees -print | sort >actual &&
 		test_cmp expected actual
 	)
+'
+
+test_expect_success MINGW 'core.hidedotfiles = false' '
+	git config --global core.hidedotfiles false &&
+	rm -rf newdir &&
+	(
+		unset GIT_DIR GIT_WORK_TREE GIT_CONFIG
+		mkdir newdir &&
+		cd newdir &&
+		git init
+	) &&
+	! is_hidden newdir/.git
+'
+
+test_expect_success MINGW 'redirect std handles' '
+	GIT_REDIRECT_STDOUT=output.txt git rev-parse --git-dir &&
+	test .git = "$(cat output.txt)" &&
+	test -z "$(GIT_REDIRECT_STDOUT=off git rev-parse --git-dir)" &&
+	test_must_fail env \
+		GIT_REDIRECT_STDOUT=output.txt \
+		GIT_REDIRECT_STDERR="2>&1" \
+		git rev-parse --git-dir --verify refs/invalid &&
+	printf ".git\nfatal: Needed a single revision\n" >expect &&
+	test_cmp expect output.txt
 '
 
 test_done

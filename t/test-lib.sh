@@ -36,17 +36,26 @@ then
 fi
 GIT_BUILD_DIR="$TEST_DIRECTORY"/..
 
-################################################################
-# It appears that people try to run tests without building...
-"$GIT_BUILD_DIR/git" >/dev/null
-if test $? != 1
+if test ! -f "$GIT_BUILD_DIR"/GIT-BUILD-OPTIONS
 then
-	echo >&2 'error: you do not seem to have built git yet.'
+	echo >&2 'error: GIT-BUILD-OPTIONS missing (has Git been built?).'
 	exit 1
 fi
 
 . "$GIT_BUILD_DIR"/GIT-BUILD-OPTIONS
 export PERL_PATH SHELL_PATH
+
+test -z "$MSVC_DEPS" ||
+PATH="$GIT_BUILD_DIR/$MSVC_DEPS/bin:$PATH"
+
+################################################################
+# It appears that people try to run tests without building...
+"$GIT_BUILD_DIR/git$X" >/dev/null
+if test $? != 1
+then
+	echo >&2 'error: you do not seem to have built git yet.'
+	exit 1
+fi
 
 # if --tee was passed, write the output not only to the terminal, but
 # additionally to the file test-results/$BASENAME.out, too.
@@ -342,6 +351,7 @@ fi
 
 exec 5>&1
 exec 6<&0
+exec 7>&2
 if test "$verbose_log" = "t"
 then
 	exec 3>>"$GIT_TEST_TEE_OUTPUT_FILE" 4>&3
@@ -598,6 +608,20 @@ test_eval_ () {
 	#
 	# The test itself is run with stderr put back to &4 (so either to
 	# /dev/null, or to the original stderr if --verbose was used).
+	if test -n "$TEST_NO_REDIRECT"
+	then
+		test_eval_inner_ "$@"
+		test_eval_ret_=$?
+		if test "$trace" = t
+		then
+			set +x
+			if test "$test_eval_ret_" != 0
+			then
+				say_color error >&4 "error: last command exited with \$?=$test_eval_ret_"
+			fi
+		fi
+		return $test_eval_ret_
+	fi
 	{
 		test_eval_inner_ "$@" </dev/null >&3 2>&4
 		test_eval_ret_=$?
@@ -624,9 +648,9 @@ test_run_ () {
 		trace=
 		# 117 is magic because it is unlikely to match the exit
 		# code of other programs
-		test_eval_ "(exit 117) && $1"
-		if test "$?" != 117; then
-			error "bug in the test script: broken &&-chain: $1"
+		if test "OK-117" != "$(test_eval_ "(exit 117) && $1${LF}${LF}echo OK-\$?" 3>&1)"
+		then
+			error "bug in the test script: broken &&-chain or run-away HERE-DOC: $1"
 		fi
 		trace=$trace_tmp
 	fi
@@ -966,7 +990,8 @@ yes () {
 }
 
 # Fix some commands on Windows
-case $(uname -s) in
+uname_s=$(uname -s)
+case $uname_s in
 *MINGW*)
 	# Windows has its own (incompatible) sort and find
 	sort () {
@@ -1141,6 +1166,7 @@ test_lazy_prereq SANITY '
 	return $status
 '
 
+test FreeBSD != $uname_s || GIT_UNZIP=${GIT_UNZIP:-/usr/local/bin/unzip}
 GIT_UNZIP=${GIT_UNZIP:-unzip}
 test_lazy_prereq UNZIP '
 	"$GIT_UNZIP" -v

@@ -179,6 +179,15 @@ test_expect_success 'git archive --remote' \
     'git archive --remote=. HEAD >b5.tar &&
     test_cmp_bin b.tar b5.tar'
 
+test_expect_success 'git archive --remote with configured remote' '
+	git config remote.foo.url . &&
+	(
+		cd a &&
+		git archive --remote=foo --output=../b5-nick.tar HEAD
+	) &&
+	test_cmp_bin b.tar b5-nick.tar
+'
+
 test_expect_success \
     'validate file modification time' \
     'mkdir extract &&
@@ -197,9 +206,15 @@ test_expect_success 'git archive with --output, override inferred format' '
 	test_cmp_bin b.tar d4.zip
 '
 
-test_expect_success \
-    'git archive --list outside of a git repo' \
-    'GIT_DIR=some/non-existing/directory git archive --list'
+test_expect_success 'git archive --list outside of a git repo' '
+	nongit git archive --list
+'
+
+test_expect_success 'git archive --remote outside of a git repo' '
+	git archive HEAD >expect.tar &&
+	nongit git archive --remote="$PWD" HEAD >actual.tar &&
+	test_cmp_bin expect.tar actual.tar
+'
 
 test_expect_success 'clients cannot access unreachable commits' '
 	test_commit unreachable &&

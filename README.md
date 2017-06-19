@@ -1,3 +1,19 @@
+Git for Windows
+===============
+
+[![Join the chat at https://gitter.im/git-for-windows/git](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/git-for-windows/git?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+This is [Git for Windows](http://git-for-windows.github.io/), the Windows port
+of [Git](http://git-scm.com/).
+
+The Git for Windows project is run using a [governance
+model](http://git-for-windows.github.io/governance-model.html). If you
+encounter problems, you can report them as [GitHub
+issues](https://github.com/git-for-windows/git/issues), discuss them on Git
+for Windows' [Google Group](http://groups.google.com/group/git-for-windows),
+and [contribute bug
+fixes](https://github.com/git-for-windows/git/wiki/How-to-participate).
+
 Git - fast, scalable, distributed revision control system
 =========================================================
 
@@ -12,7 +28,7 @@ Torvalds with help of a group of hackers around the net.
 
 Please read the file [INSTALL][] for installation instructions.
 
-Many Git online resources are accessible from http://git-scm.com/
+Many Git online resources are accessible from <https://git-scm.com/>
 including full documentation and Git related tools.
 
 See [Documentation/gittutorial.txt][] to get started, then see
@@ -33,8 +49,8 @@ requests, comments and patches to git@vger.kernel.org (read
 [Documentation/SubmittingPatches][] for instructions on patch submission).
 To subscribe to the list, send an email with just "subscribe git" in
 the body to majordomo@vger.kernel.org. The mailing list archives are
-available at http://news.gmane.org/gmane.comp.version-control.git/,
-http://marc.info/?l=git and other archival sites.
+available at <https://public-inbox.org/git/>,
+<http://marc.info/?l=git> and other archival sites.
 
 The maintainer frequently sends the "What's cooking" reports that
 list the current status of various development topics to the mailing

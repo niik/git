@@ -13,6 +13,8 @@
 #include "refs.h"
 
 static int debug;
+/* TODO: put somewhere sensible, e.g. git_transport_options? */
+static int auto_gc = 1;
 
 struct helper_data {
 	const char *name;
@@ -124,8 +126,9 @@ static struct child_process *get_helper(struct transport *transport)
 	helper->git_cmd = 0;
 	helper->silent_exec_failure = 1;
 
-	argv_array_pushf(&helper->env_array, "%s=%s", GIT_DIR_ENVIRONMENT,
-			 get_git_dir());
+	if (have_git_dir())
+		argv_array_pushf(&helper->env_array, "%s=%s",
+				 GIT_DIR_ENVIRONMENT, get_git_dir());
 
 	code = start_command(helper);
 	if (code < 0 && errno == ENOENT)
@@ -346,14 +349,11 @@ static int set_helper_option(struct transport *transport,
 static void standard_options(struct transport *t)
 {
 	char buf[16];
-	int n;
 	int v = t->verbose;
 
 	set_helper_option(t, "progress", t->progress ? "true" : "false");
 
-	n = snprintf(buf, sizeof(buf), "%d", v + 1);
-	if (n >= sizeof(buf))
-		die("impossibly large verbosity value");
+	xsnprintf(buf, sizeof(buf), "%d", v + 1);
 	set_helper_option(t, "verbosity", buf);
 
 	switch (t->family) {
@@ -472,8 +472,23 @@ static int get_exporter(struct transport *transport,
 	for (i = 0; i < revlist_args->nr; i++)
 		argv_array_push(&fastexport->args, revlist_args->items[i].string);
 
+	argv_array_push(&fastexport->args, "--");
+
 	fastexport->git_cmd = 1;
 	return start_command(fastexport);
+}
+
+static void check_helper_status(struct helper_data *data)
+{
+	int pid, status;
+
+	pid = waitpid(data->helper->pid, &status, WNOHANG);
+	if (pid < 0)
+		die("Could not retrieve status of remote helper '%s'",
+		    data->name);
+	if (pid > 0 && WIFEXITED(status))
+		die("Remote helper '%s' died with %d",
+		    data->name, WEXITSTATUS(status));
 }
 
 static int fetch_with_import(struct transport *transport,
@@ -512,6 +527,7 @@ static int fetch_with_import(struct transport *transport,
 
 	if (finish_command(&fastimport))
 		die("Error while running fast-import");
+	check_helper_status(data);
 
 	/*
 	 * The fast-import stream of a remote helper that advertises
@@ -545,6 +561,12 @@ static int fetch_with_import(struct transport *transport,
 		}
 	}
 	strbuf_release(&buf);
+	if (auto_gc) {
+		const char *argv_gc_auto[] = {
+			"gc", "--auto", "--quiet", NULL,
+		};
+		run_command_v_opt(argv_gc_auto, RUN_GIT_CMD);
+	}
 	return 0;
 }
 
@@ -826,6 +848,13 @@ static void set_common_push_options(struct transport *transport,
 		if (set_helper_option(transport, TRANS_OPT_PUSH_CERT, "if-asked") != 0)
 			die("helper %s does not support --signed=if-asked", name);
 	}
+
+	if (flags & TRANSPORT_PUSH_OPTIONS) {
+		struct string_list_item *item;
+		for_each_string_list_item(item, transport->push_options)
+			if (set_helper_option(transport, "push-option", item->string) != 0)
+				die("helper %s does not support 'push-option'", name);
+	}
 }
 
 static int push_refs_with_push(struct transport *transport,
@@ -972,6 +1001,7 @@ static int push_refs_with_export(struct transport *transport,
 
 	if (finish_command(&exporter))
 		die("Error while running fast-export");
+	check_helper_status(data);
 	if (push_update_refs_status(data, remote_refs, flags))
 		return 1;
 
