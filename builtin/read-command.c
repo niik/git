@@ -16,12 +16,12 @@ int cmd_read_command(int argc, const char **argv, const char *prefix)
 	int r = packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
 
 	if (r <= 0)
-		die("Zero length argument length packet");
+		die("zero length argument length packet");
 
 	int new_argc = atoi(buf);
 
 	if (new_argc < 0)
-		die("Invalid argument length packet");
+		die("invalid argument length packet");
 
 	argv_array_push(&new_argv, "git");
 
