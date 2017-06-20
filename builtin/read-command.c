@@ -26,7 +26,11 @@ int cmd_read_command(int argc, const char **argv, const char *prefix)
 	argv_array_push(&new_argv, "git");
 
 	for(int i = 0; i < new_argc; i++) {
-		packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
+		r = packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
+
+		if (strlen(buf) < r)
+			die("invalid argument at %d, arguments can't contain \\0", i);
+
 		argv_array_push(&new_argv, buf);
 	}
 
