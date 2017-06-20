@@ -8,29 +8,59 @@
 #include "pkt-line.h"
 #include "argv-array.h"
 
+int read_arg(char *buffer, unsigned size) {
+	int r = packet_read(0, NULL, NULL, buffer, size, 0);
+
+	if (r < 0)
+		die("unexpected end of input");
+
+	if (strlen(buffer) < r)
+		die("arguments can't contain \\0");
+
+	return r;
+}
+
+int read_int_arg(char *buffer, unsigned size) {
+	if (!read_arg(buffer, size))
+		die("expected integer");
+
+	int val = atoi(buffer);
+
+	if (val < 0)
+		die("expected positive integer");
+
+	return val;
+}
+
 int cmd_read_command(int argc, const char **argv, const char *prefix)
 {
+	int i;
 	struct argv_array new_argv = ARGV_ARRAY_INIT;
 	char buf[LARGE_PACKET_MAX];
 
-	int r = packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
+	int envc = read_int_arg(buf, sizeof(buf));
 
-	if (r <= 0)
-		die("zero length argument length packet");
+	for (i = 0; i < envc; i++) {
+		if (!read_arg(buf, sizeof(buf)))
+			die("expected environment variable, got empty packet");
 
-	int new_argc = atoi(buf);
+		char *value = strchr(buf, '=');
 
-	if (new_argc < 0)
-		die("invalid argument length packet");
+		if (!value) {
+			value = "";
+		} else {
+			*value++ = '\0';
+		}
+
+		setenv(buf, value, 1);
+	}
+
+	int new_argc = read_int_arg(buf, sizeof(buf));
 
 	argv_array_push(&new_argv, "git");
 
-	for(int i = 0; i < new_argc; i++) {
-		r = packet_read(0, NULL, NULL, buf, sizeof(buf), 0);
-
-		if (strlen(buf) < r)
-			die("invalid argument at %d, arguments can't contain \\0", i);
-
+	for (i = 0; i < new_argc; i++) {
+		read_arg(buf, sizeof(buf));
 		argv_array_push(&new_argv, buf);
 	}
 
